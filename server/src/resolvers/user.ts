@@ -2,9 +2,9 @@ import { User } from "../entities/User";
 import { MyContext } from "../types";
 import { Arg, Ctx, Field, InputType, Mutation, ObjectType, Resolver } from "type-graphql";
 import argon2 from 'argon2'
-
+import { EntityManager } from "@mikro-orm/postgresql"; 
 @InputType()
-class UsernameAndPaswword{
+class UsernameAndPassword{
     @Field()
     username: string
     @Field()
@@ -32,7 +32,7 @@ class UserResponse{
 export class UserResolver {
     @Mutation(()=>UserResponse)
     async register(
-        @Arg("options") options: UsernameAndPaswword,
+        @Arg("options") options: UsernameAndPassword,
         @Ctx() {em}: MyContext
     ):Promise<UserResponse>{
         if(options.username.length<=2){
@@ -51,13 +51,20 @@ export class UserResolver {
                 }]
             }
         }
+        let user;
         const hashedPass = await argon2.hash(options.password)
-        const user = em.create(User,{
-            username:options.username,
-            password:hashedPass
-        });
         try {
-            await em.persistAndFlush(user)    
+            const result = await (em as EntityManager)
+                .createQueryBuilder(User)
+                .getKnexQuery()
+                .insert({
+                    username:options.username,
+                    password:hashedPass,
+                    created_at: new Date(),  
+                    updated_at: new Date(),  
+                })
+                .returning("*")
+            user =result[0]; 
         } catch (err) {
             if(err.code === '23505')
             return {
@@ -74,7 +81,7 @@ export class UserResolver {
 
     @Mutation(()=>UserResponse)
     async login(
-        @Arg("options") options: UsernameAndPaswword,
+        @Arg("options") options: UsernameAndPassword,
         @Ctx() {em, req}: MyContext
     ): Promise<UserResponse>{
         const user = await em.findOne(User, {username:options.username});
